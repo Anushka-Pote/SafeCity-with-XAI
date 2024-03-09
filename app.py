@@ -139,19 +139,30 @@ elif selected_page == "Explainable AI":
     if st.button("Explain"):
         if input_text:
             # Create a LIME explainer
-            class_names = ['Label 1', 'Label 2', 'Label 3']  # Replace with your actual class names
+            class_names = labels  # Use the existing labels
             explainer = LimeTextExplainer(class_names=class_names)
 
+            # Preprocess the input text for the model
+            inputs = preprocess_text(input_text)
+
             # Get the model's prediction
-            prediction = get_prediction(input_text)
+            outputs = model(**inputs)[0]
+            logits = outputs.detach().cpu().numpy()
+            prediction = logits.argmax()  # Get the predicted class index
 
             # Get the LIME explanation
-            explanation = explainer.explain_instance(input_text, get_prediction, num_features=10)
+            explanation = explainer.explain_instance(input_text, get_prediction, num_features=10, labels=[0, 1, 2])
 
-            # Print the explanation
-            st.write("LIME Explanation:")
-            explanation_list = explanation.as_list()
-            for exp in explanation_list:
-                st.write(f"{exp[1]}: {exp[0]}")
+            # Print the instance and predicted class
+            st.write(f'Instance to Explain: {input_text}')
+            st.write(f'Predicted Class: {class_names[prediction]}')
+            st.write('Explanation:')
+
+            # Print the explanation with positive/negative weights
+            for word, weight in explanation.as_list():
+                if weight > 0:
+                    st.write(f'    {word}: {weight:.2f} (Positive)')
+                else:
+                    st.write(f'    {word}: {weight:.2f} (Negative)')
         else:
             st.write("Please enter a description to explain.")
