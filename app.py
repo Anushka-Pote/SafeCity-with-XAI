@@ -3,13 +3,35 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from keras.models import load_model
-from keras.preprocessing.text import Tokenizer
+from keras.layers import Input, Embedding, LSTM, Dense
+from keras.models import Model
+from tensorflow.keras.preprocessing.text import Tokenizer
 from keras.preprocessing.sequence import pad_sequences
-import shap
+from lime import lime_text
 import numpy as np
+import torch
+from transformers import RobertaTokenizer, RobertaForSequenceClassification
+from lime.lime_text import LimeTextExplainer
 
 # Disable the PyplotGlobalUseWarning
 st.set_option('deprecation.showPyplotGlobalUse', False)
+# Load the pre-trained RoBERTa model and tokenizer
+model_name = "roberta-base"
+tokenizer = RobertaTokenizer.from_pretrained(model_name)
+num_labels = 3  # Replace with the actual number of labels in your task
+model = RobertaForSequenceClassification.from_pretrained(model_name, num_labels=num_labels)
+
+# Define a function to preprocess the input text for the model
+def preprocess_text(text):
+    inputs = tokenizer.encode_plus(text, return_tensors="pt", padding=True, truncation=True, max_length=512)
+    return inputs
+
+# Define a function to get the model's prediction
+def get_prediction(text):
+    inputs = preprocess_text(text)
+    outputs = model(**inputs)[0]
+    logits = outputs.detach().cpu().numpy()
+    return logits
 
 # Load the tokenizer
 @st.cache_resource
@@ -18,10 +40,11 @@ def load_tokenizer():
 
 tokenizer = load_tokenizer()
 
-# Load the pre-trained model
+import tensorflow as tf
+
 @st.cache_resource
 def load_pretrained_model():
-    return load_model('keras model.h5')  
+    return tf.keras.models.load_model('keras model.h5')
 
 model = load_pretrained_model()
 
@@ -36,7 +59,7 @@ st.title("Harassment Detection")
 st.write("Enter a description to predict harassment types.")
 
 # Sidebar navigation
-selected_page = st.sidebar.radio("Navigation", ["Incidents", "Safety Tips", "Reports", "Community"])
+selected_page = st.sidebar.radio("Navigation", ["Incidents", "Safety Tips", "Reports", "Explainable AI"])
 
 # Input text area for entering description
 description = st.text_area("Description", "")
@@ -63,10 +86,15 @@ if st.button("Predict"):
             st.write("No harassment detected.")
     else:
         st.write("Please enter a description.")
+        
+dev_data = pd.read_csv("dev.csv")
+labels = ['Commenting', 'Ogling/Facial Expressions/Staring', 'Touching /Groping']
+# Page content based on selected navigation'
 
-# Page content based on selected navigation
 if selected_page == "Incidents":
-    st.write("This is the Incidents page.")
+    st.write("This is the Incidents page where you can input and share your real life experiences to help others and improvise the community for women's safety")
+    st.write("It is anonymous sharing of data, so you dont have have to feel shy or guilty.")
+    st.write("It is not your fault and we all are there with you.")
 elif selected_page == "Safety Tips":
     st.write("### Safety Tips for Women")
     st.write("Here are some safety tips and tricks to help prevent harassment and stay safe:")
@@ -81,12 +109,6 @@ elif selected_page == "Safety Tips":
     st.write("- Report any incidents of harassment or assault to the authorities.")
 elif selected_page == "Reports":
     st.write("### Reports Page")
-
-     # Load dev.csv dataset
-    dev_data = pd.read_csv("dev.csv")
-
-    # Human-readable labels
-    labels = ['Commenting', 'Ogling/Facial Expressions/Staring', 'Touching /Groping']
 
     # Count the number of 1's for each label
     label_counts = []
@@ -107,36 +129,29 @@ elif selected_page == "Reports":
 
     # Display the plot in Streamlit
     st.pyplot(fig)
+
 elif selected_page == "Explainable AI":
     st.write("### Explainable AI")
-    st.write("Use the SHAP explainer to understand the model's predictions.")
-
+    st.write("Use the AI explainer to understand the model's predictions.")
     # Get the input text from the user
     input_text = st.text_area("Enter a description", "")
 
     if st.button("Explain"):
         if input_text:
-            # Tokenize the input text
-            input_sequence = tokenizer.texts_to_sequences([input_text])
-            padded_input = pad_sequences(input_sequence, maxlen=maxlen)
+            # Create a LIME explainer
+            class_names = ['Label 1', 'Label 2', 'Label 3']  # Replace with your actual class names
+            explainer = LimeTextExplainer(class_names=class_names)
 
-            # Create a background dataset for SHAP
-            background_texts = dev_data['description'].tolist()  # Assuming 'description' is a column in your dev.csv
-            background_sequences = tokenizer.texts_to_sequences(background_texts)
-            padded_background = pad_sequences(background_sequences, maxlen=maxlen)
+            # Get the model's prediction
+            prediction = get_prediction(input_text)
 
-            # Create the SHAP explainer
-            explainer = shap.DeepExplainer(model, data=padded_background)
+            # Get the LIME explanation
+            explanation = explainer.explain_instance(input_text, get_prediction, num_features=10)
 
-            # Get the SHAP values
-            shap_values = explainer.shap_values(padded_input)
-
-            # Plot the SHAP force plot
-            st.write("SHAP Force Plot:")
-            shap.force_plot(explainer.expected_value[0], shap_values[0], padded_input[0])
-            st.pyplot()
+            # Print the explanation
+            st.write("LIME Explanation:")
+            explanation_list = explanation.as_list()
+            for exp in explanation_list:
+                st.write(f"{exp[1]}: {exp[0]}")
         else:
             st.write("Please enter a description to explain.")
-            
-elif selected_page == "Community":
-    st.write("This is the Community page.")
